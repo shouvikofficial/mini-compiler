@@ -306,19 +306,38 @@ void yyerror(const char *s) {
 }
 
 int main() {
-printf("Project Name: Mini Language Parser\n\n");
-printf("Submitted By: Group-3\n");
-printf("Name:\t\t\tID:\n");
-printf("Md Rasel Biswash\t0242310005101215\n");
-printf("Md Rakib Hasan\t\t0242310005101395\n");
-printf("Mst.Afiya Haque Nilasa\t0242310005101630\n");
-printf("Mst.Rukaia Zahan\t0242310005101390\n");
-printf("Babor Ali\t\t0242310005101954\n");
-printf("\nSection: 64_M1\nDaffodil International University\n");
-printf("\nSubmitted To:\nZannatul Mawa Koli\nLecturer\nDepartment of CSE\nFaculty of Science and Information Technology\nDaffodil International University\n\n");
-printf("Submition Date: 14-08-2025\n\n");
 
-printf("Write your code here(Note: To exicute ctrl+z and press enter): \n");
+    printf("=============================================================\n");
+    printf("                   MINI LANGUAGE PARSER PROJECT              \n");
+    printf("=============================================================\n\n");
+
+    printf("Submitted By:\n");
+    printf("-------------------------------------------------------------\n");
+    printf("%-25s %-15s\n", "Name", "ID");
+    printf("-------------------------------------------------------------\n");
+    printf("%-25s %-15s\n", "Shouvik Dhali", "0242220005101159");
+    printf("%-25s %-15s\n", "Seikh Shariar Nehal", "0242220005101260");
+    printf("%-25s %-15s\n", "Mst. Afiya Haque Nilasa", "0242310005101630");
+    printf("%-25s %-15s\n", "Mst. Rukaia Zahan", "0242310005101390");
+    printf("%-25s %-15s\n", "Babor Ali", "0242310005101954");
+
+    printf("\nSection: 63_G\n");
+    printf("Daffodil International University\n\n");
+
+    printf("Submitted To:\n");
+    printf("-------------------------------------------------------------\n");
+    printf("Zannatul Mawa Koli\n");
+    printf("Lecturer, Department of CSE\n");
+    printf("Faculty of Science & Information Technology\n");
+    printf("Daffodil International University\n");
+    printf("-------------------------------------------------------------\n");
+
+    printf("Submission Date: 14-08-2025\n");
+    printf("=============================================================\n\n");
+
+    printf("Write your code below\n");
+    printf("(NOTE: End input using Ctrl+Z then press Enter)\n");
+    printf("-------------------------------------------------------------\n");
 
     if (yyparse() == 0) {
         execute_stmt_list(root);
