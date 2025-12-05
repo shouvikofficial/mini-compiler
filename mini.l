@@ -42,6 +42,11 @@ id          [a-zA-Z_][a-zA-Z0-9_]*
 "<"         { return LT; }
 "=="        { return EQ; }
 
+\"([^\"\\]|\\.)*\"   {
+    yylval.str = strdup(yytext);
+    return STRING;
+}
+
 {digit}+(\.{digit}+)?  {
     yylval.fval = atof(yytext);
     return FLOAT;
