@@ -35,14 +35,12 @@
 /* "%code requires" blocks.  */
 
 /* Line 1676 of yacc.c  */
-#line 227 "mini.y"
-
-#include "ast.h"
-
+#line 300 "mini.y"
+ #include "ast.h" 
 
 
 /* Line 1676 of yacc.c  */
-#line 46 "mini.tab.h"
+#line 44 "mini.tab.h"
 
 /* Tokens.  */
 #ifndef YYTOKENTYPE
@@ -52,22 +50,30 @@
    enum yytokentype {
      FLOAT = 258,
      IDENT = 259,
-     PRINT = 260,
-     IF = 261,
-     ELSE = 262,
-     ASSIGN = 263,
-     PLUS = 264,
-     MINUS = 265,
-     MUL = 266,
-     DIV = 267,
-     SEMI = 268,
-     LBRACE = 269,
-     RBRACE = 270,
-     LPAREN = 271,
-     RPAREN = 272,
-     GT = 273,
-     LT = 274,
-     EQ = 275
+     STRING = 260,
+     PRINT = 261,
+     IF = 262,
+     ELSE = 263,
+     WHILE = 264,
+     FOR = 265,
+     ASSIGN = 266,
+     PLUS = 267,
+     MINUS = 268,
+     MUL = 269,
+     DIV = 270,
+     SEMI = 271,
+     LBRACE = 272,
+     RBRACE = 273,
+     LPAREN = 274,
+     RPAREN = 275,
+     GT = 276,
+     LT = 277,
+     EQ = 278,
+     GE = 279,
+     LE = 280,
+     NE = 281,
+     AND = 282,
+     OR = 283
    };
 #endif
 
@@ -78,7 +84,7 @@ typedef union YYSTYPE
 {
 
 /* Line 1676 of yacc.c  */
-#line 231 "mini.y"
+#line 302 "mini.y"
 
     double fval;
     char *str;
@@ -89,7 +95,7 @@ typedef union YYSTYPE
 
 
 /* Line 1676 of yacc.c  */
-#line 93 "mini.tab.h"
+#line 99 "mini.tab.h"
 } YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */

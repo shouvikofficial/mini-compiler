@@ -79,6 +79,7 @@
 typedef struct var {
     char *name;
     double value;
+    char *str_value;   // NEW — store string variables
     struct var *next;
 } var_t;
 
@@ -87,32 +88,42 @@ var_t *var_list = NULL;
 /* Forward declarations */
 int yylex(void);
 void yyerror(const char *s);
+
 void set_var(const char *name, double value);
+void set_var_str(const char *name, const char *s);
 double get_var(const char *name);
+char *get_var_str(const char *name);
+
 expr_t *make_const(double val);
 expr_t *make_var(char *name);
+expr_t *make_string(char *s);
 expr_t *make_binop(op_type op, expr_t *left, expr_t *right);
+
 stmt_t *make_assign(char *name, expr_t *expr);
 stmt_t *make_print(expr_t *expr);
 stmt_t *make_if(expr_t *cond, stmt_list_t *then_block, stmt_list_t *else_block);
+stmt_t *make_while(expr_t *cond, stmt_list_t *body);
+stmt_t *make_for(stmt_t *init, expr_t *cond, stmt_t *incr, stmt_list_t *body);
+
 stmt_list_t *make_stmt_list(void);
 void stmt_list_append(stmt_list_t *list, stmt_t *stmt);
+
 double eval_expr(expr_t *e);
+char *eval_expr_str(expr_t *e);
+
 void execute_stmt(stmt_t *s);
 void execute_stmt_list(stmt_list_t *list);
-void free_expr(expr_t *e);
-void free_stmt(stmt_t *s);
-void free_stmt_list(stmt_list_t *list);
 
 stmt_list_t *root = NULL;
 
-/* Implementations */
+/* ========================= VARIABLE SET ======================== */
 
 void set_var(const char *name, double value) {
     var_t *v = var_list;
     while (v) {
         if (strcmp(v->name, name) == 0) {
             v->value = value;
+            if (v->str_value) { free(v->str_value); v->str_value = NULL; }
             return;
         }
         v = v->next;
@@ -120,9 +131,30 @@ void set_var(const char *name, double value) {
     v = malloc(sizeof(var_t));
     v->name = strdup(name);
     v->value = value;
+    v->str_value = NULL;
     v->next = var_list;
     var_list = v;
 }
+
+void set_var_str(const char *name, const char *s) {
+    var_t *v = var_list;
+    while (v) {
+        if (strcmp(v->name, name) == 0) {
+            if (v->str_value) free(v->str_value);
+            v->str_value = strdup(s);
+            return;
+        }
+        v = v->next;
+    }
+    v = malloc(sizeof(var_t));
+    v->name = strdup(name);
+    v->value = 0;
+    v->str_value = strdup(s);
+    v->next = var_list;
+    var_list = v;
+}
+
+/* ------------------ Variable Get ------------------ */
 
 double get_var(const char *name) {
     var_t *v = var_list;
@@ -134,6 +166,19 @@ double get_var(const char *name) {
     fprintf(stderr, "Error: variable '%s' not defined.\n", name);
     return 0.0;
 }
+
+/* FIX 1 — return NULL when variable is not a string */
+char *get_var_str(const char *name) {
+    var_t *v = var_list;
+    while (v) {
+        if (strcmp(v->name, name) == 0)
+            return v->str_value;   // may be NULL
+        v = v->next;
+    }
+    return NULL;
+}
+
+/* ========================= EXPR ======================== */
 
 expr_t *make_const(double val) {
     expr_t *e = malloc(sizeof(expr_t));
@@ -149,6 +194,16 @@ expr_t *make_var(char *name) {
     return e;
 }
 
+expr_t *make_string(char *s) {
+    expr_t *e = malloc(sizeof(expr_t));
+    e->type = EXPR_STRING;
+
+    s[strlen(s)-1] = '\0'; 
+    e->str_value = strdup(s+1);
+
+    return e;
+}
+
 expr_t *make_binop(op_type op, expr_t *left, expr_t *right) {
     expr_t *e = malloc(sizeof(expr_t));
     e->type = EXPR_BINOP;
@@ -157,6 +212,8 @@ expr_t *make_binop(op_type op, expr_t *left, expr_t *right) {
     e->binop.right = right;
     return e;
 }
+
+/* ========================= STMT ======================== */
 
 stmt_t *make_assign(char *name, expr_t *expr) {
     stmt_t *s = malloc(sizeof(stmt_t));
@@ -185,6 +242,26 @@ stmt_t *make_if(expr_t *cond, stmt_list_t *then_block, stmt_list_t *else_block) 
     return s;
 }
 
+stmt_t *make_while(expr_t *cond, stmt_list_t *body) {
+    stmt_t *s = malloc(sizeof(stmt_t));
+    s->type = STMT_WHILE;
+    s->while_stmt.cond = cond;
+    s->while_stmt.body = body;
+    return s;
+}
+
+stmt_t *make_for(stmt_t *init, expr_t *cond, stmt_t *incr, stmt_list_t *body) {
+    stmt_t *s = malloc(sizeof(stmt_t));
+    s->type = STMT_FOR;
+    s->for_stmt.init = init;
+    s->for_stmt.cond = cond;
+    s->for_stmt.incr = incr;
+    s->for_stmt.body = body;
+    return s;
+}
+
+/* ========================= STMT LIST ======================== */
+
 stmt_list_t *make_stmt_list(void) {
     stmt_list_t *list = malloc(sizeof(stmt_list_t));
     list->head = NULL;
@@ -193,55 +270,89 @@ stmt_list_t *make_stmt_list(void) {
 }
 
 void stmt_list_append(stmt_list_t *list, stmt_t *stmt) {
-    if (!list->head) {
+    if (!list->head)
         list->head = stmt;
-        list->tail = stmt;
-    } else {
+    else
         list->tail->next = stmt;
-        list->tail = stmt;
-    }
+
+    list->tail = stmt;
 }
 
+/* ========================= EVAL ======================== */
+
 double eval_expr(expr_t *e) {
-    switch (e->type) {
-        case EXPR_CONST:
-            return e->value;
-        case EXPR_VAR:
-            return get_var(e->var_name);
-        case EXPR_BINOP: {
-            double l = eval_expr(e->binop.left);
-            double r = eval_expr(e->binop.right);
-            switch (e->binop.op) {
-                case OP_PLUS: return l + r;
-                case OP_MINUS: return l - r;
-                case OP_MUL: return l * r;
-                case OP_DIV: return l / r;
-                case OP_GT: return l > r;
-                case OP_LT: return l < r;
-                case OP_EQ: return l == r;
-            }
-        }
+    if (e->type == EXPR_CONST) return e->value;
+    if (e->type == EXPR_VAR) return get_var(e->var_name);
+    if (e->type == EXPR_STRING) return 0;
+
+    double l = eval_expr(e->binop.left);
+    double r = eval_expr(e->binop.right);
+
+    switch (e->binop.op) {
+        case OP_PLUS: return l + r;
+        case OP_MINUS: return l - r;
+        case OP_MUL: return l * r;
+        case OP_DIV: return l / r;
+        case OP_GT: return l > r;
+        case OP_LT: return l < r;
+        case OP_EQ: return l == r;
+        case OP_GE: return l >= r;
+        case OP_LE: return l <= r;
+        case OP_NE: return l != r;
+        case OP_AND: return l && r;
+        case OP_OR: return l || r;
     }
-    return 0.0;
+    return 0;
 }
+
+/* ========================= EXECUTE ======================== */
 
 void execute_stmt(stmt_t *s) {
     switch (s->type) {
-        case STMT_ASSIGN:
+
+    case STMT_ASSIGN:
+        if (s->assign.expr->type == EXPR_STRING)
+            set_var_str(s->assign.var_name, s->assign.expr->str_value);
+        else
             set_var(s->assign.var_name, eval_expr(s->assign.expr));
-            break;
-        case STMT_PRINT:
-            printf("%g\n", eval_expr(s->print.expr));
-            break;
-        case STMT_IF: {
-            double cond_val = eval_expr(s->if_stmt.cond);
-            if (cond_val) {
-                execute_stmt_list(s->if_stmt.then_block);
-            } else if (s->if_stmt.else_block) {
-                execute_stmt_list(s->if_stmt.else_block);
-            }
-            break;
+        break;
+
+    /* FIX 2 — correctly print string or numeric variable */
+    case STMT_PRINT:
+        if (s->print.expr->type == EXPR_STRING) {
+            printf("%s\n", s->print.expr->str_value);
         }
+        else if (s->print.expr->type == EXPR_VAR) {
+            char *sv = get_var_str(s->print.expr->var_name);
+            if (sv != NULL)
+                printf("%s\n", sv);
+            else
+                printf("%g\n", get_var(s->print.expr->var_name));
+        }
+        else {
+            printf("%g\n", eval_expr(s->print.expr));
+        }
+        break;
+
+    case STMT_IF:
+        if (eval_expr(s->if_stmt.cond))
+            execute_stmt_list(s->if_stmt.then_block);
+        else if (s->if_stmt.else_block)
+            execute_stmt_list(s->if_stmt.else_block);
+        break;
+
+    case STMT_WHILE:
+        while (eval_expr(s->while_stmt.cond))
+            execute_stmt_list(s->while_stmt.body);
+        break;
+
+    case STMT_FOR:
+        execute_stmt(s->for_stmt.init);
+        while (eval_expr(s->for_stmt.cond)) {
+            execute_stmt_list(s->for_stmt.body);
+            execute_stmt(s->for_stmt.incr);
+        }
+        break;
     }
 }
 
@@ -253,50 +364,12 @@ void execute_stmt_list(stmt_list_t *list) {
     }
 }
 
-void free_expr(expr_t *e) {
-    if (!e) return;
-    if (e->type == EXPR_VAR) free(e->var_name);
-    else if (e->type == EXPR_BINOP) {
-        free_expr(e->binop.left);
-        free_expr(e->binop.right);
-    }
-    free(e);
-}
-
-void free_stmt(stmt_t *s) {
-    if (!s) return;
-    switch (s->type) {
-        case STMT_ASSIGN:
-            free(s->assign.var_name);
-            free_expr(s->assign.expr);
-            break;
-        case STMT_PRINT:
-            free_expr(s->print.expr);
-            break;
-        case STMT_IF:
-            free_expr(s->if_stmt.cond);
-            free_stmt_list(s->if_stmt.then_block);
-            if (s->if_stmt.else_block) free_stmt_list(s->if_stmt.else_block);
-            break;
-    }
-    free(s);
-}
-
-void free_stmt_list(stmt_list_t *list) {
-    if (!list) return;
-    stmt_t *cur = list->head;
-    while (cur) {
-        stmt_t *next = cur->next;
-        free_stmt(cur);
-        cur = next;
-    }
-    free(list);
-}
+/* ========================= GRAMMAR ======================== */
 
 
 
 /* Line 189 of yacc.c  */
-#line 300 "mini.tab.c"
+#line 373 "mini.tab.c"
 
 /* Enabling traces.  */
 #ifndef YYDEBUG
@@ -319,14 +392,12 @@ void free_stmt_list(stmt_list_t *list) {
 /* "%code requires" blocks.  */
 
 /* Line 209 of yacc.c  */
-#line 227 "mini.y"
-
-#include "ast.h"
-
+#line 300 "mini.y"
+ #include "ast.h" 
 
 
 /* Line 209 of yacc.c  */
-#line 330 "mini.tab.c"
+#line 401 "mini.tab.c"
 
 /* Tokens.  */
 #ifndef YYTOKENTYPE
@@ -336,22 +407,30 @@ void free_stmt_list(stmt_list_t *list) {
    enum yytokentype {
      FLOAT = 258,
      IDENT = 259,
-     PRINT = 260,
-     IF = 261,
-     ELSE = 262,
-     ASSIGN = 263,
-     PLUS = 264,
-     MINUS = 265,
-     MUL = 266,
-     DIV = 267,
-     SEMI = 268,
-     LBRACE = 269,
-     RBRACE = 270,
-     LPAREN = 271,
-     RPAREN = 272,
-     GT = 273,
-     LT = 274,
-     EQ = 275
+     STRING = 260,
+     PRINT = 261,
+     IF = 262,
+     ELSE = 263,
+     WHILE = 264,
+     FOR = 265,
+     ASSIGN = 266,
+     PLUS = 267,
+     MINUS = 268,
+     MUL = 269,
+     DIV = 270,
+     SEMI = 271,
+     LBRACE = 272,
+     RBRACE = 273,
+     LPAREN = 274,
+     RPAREN = 275,
+     GT = 276,
+     LT = 277,
+     EQ = 278,
+     GE = 279,
+     LE = 280,
+     NE = 281,
+     AND = 282,
+     OR = 283
    };
 #endif
 
@@ -362,7 +441,7 @@ typedef union YYSTYPE
 {
 
 /* Line 214 of yacc.c  */
-#line 231 "mini.y"
+#line 302 "mini.y"
 
     double fval;
     char *str;
@@ -373,7 +452,7 @@ typedef union YYSTYPE
 
 
 /* Line 214 of yacc.c  */
-#line 377 "mini.tab.c"
+#line 456 "mini.tab.c"
 } YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
@@ -385,7 +464,7 @@ typedef union YYSTYPE
 
 
 /* Line 264 of yacc.c  */
-#line 389 "mini.tab.c"
+#line 468 "mini.tab.c"
 
 #ifdef short
 # undef short
@@ -600,20 +679,20 @@ union yyalloc
 /* YYFINAL -- State number of the termination state.  */
 #define YYFINAL  2
 /* YYLAST -- Last index in YYTABLE.  */
-#define YYLAST   57
+#define YYLAST   101
 
 /* YYNTOKENS -- Number of terminals.  */
-#define YYNTOKENS  21
+#define YYNTOKENS  29
 /* YYNNTS -- Number of nonterminals.  */
 #define YYNNTS  7
 /* YYNRULES -- Number of rules.  */
-#define YYNRULES  19
+#define YYNRULES  27
 /* YYNRULES -- Number of states.  */
-#define YYNSTATES  42
+#define YYNSTATES  71
 
 /* YYTRANSLATE(YYLEX) -- Bison symbol number corresponding to YYLEX.  */
 #define YYUNDEFTOK  2
-#define YYMAXUTOK   275
+#define YYMAXUTOK   283
 
 #define YYTRANSLATE(YYX)						\
   ((unsigned int) (YYX) <= YYMAXUTOK ? yytranslate[YYX] : YYUNDEFTOK)
@@ -648,7 +727,8 @@ static const yytype_uint8 yytranslate[] =
        2,     2,     2,     2,     2,     2,     2,     2,     2,     2,
        2,     2,     2,     2,     2,     2,     1,     2,     3,     4,
        5,     6,     7,     8,     9,    10,    11,    12,    13,    14,
-      15,    16,    17,    18,    19,    20
+      15,    16,    17,    18,    19,    20,    21,    22,    23,    24,
+      25,    26,    27,    28
 };
 
 #if YYDEBUG
@@ -656,28 +736,34 @@ static const yytype_uint8 yytranslate[] =
    YYRHS.  */
 static const yytype_uint8 yyprhs[] =
 {
-       0,     0,     3,     4,     7,    12,    16,    18,    24,    32,
-      36,    40,    44,    48,    52,    56,    60,    64,    66,    68
+       0,     0,     3,     4,     7,    12,    16,    18,    24,    38,
+      44,    52,    56,    60,    64,    68,    72,    76,    80,    84,
+      88,    92,    96,   100,   104,   106,   108,   110
 };
 
 /* YYRHS -- A `-1'-separated list of the rules' RHS.  */
 static const yytype_int8 yyrhs[] =
 {
-      22,     0,    -1,    -1,    22,    23,    -1,     4,     8,    27,
-      13,    -1,     5,    27,    13,    -1,    24,    -1,     6,    16,
-      26,    17,    25,    -1,     6,    16,    26,    17,    25,     7,
-      25,    -1,    14,    22,    15,    -1,    27,    18,    27,    -1,
-      27,    19,    27,    -1,    27,    20,    27,    -1,    27,     9,
-      27,    -1,    27,    10,    27,    -1,    27,    11,    27,    -1,
-      27,    12,    27,    -1,     3,    -1,     4,    -1,    16,    27,
-      17,    -1
+      30,     0,    -1,    -1,    30,    31,    -1,     4,    11,    35,
+      16,    -1,     6,    35,    16,    -1,    32,    -1,     9,    19,
+      34,    20,    33,    -1,    10,    19,     4,    11,    35,    16,
+      34,    16,     4,    11,    35,    20,    33,    -1,     7,    19,
+      34,    20,    33,    -1,     7,    19,    34,    20,    33,     8,
+      33,    -1,    17,    30,    18,    -1,    34,    27,    34,    -1,
+      34,    28,    34,    -1,    35,    21,    35,    -1,    35,    22,
+      35,    -1,    35,    24,    35,    -1,    35,    25,    35,    -1,
+      35,    26,    35,    -1,    35,    23,    35,    -1,    35,    12,
+      35,    -1,    35,    13,    35,    -1,    35,    14,    35,    -1,
+      35,    15,    35,    -1,     3,    -1,     4,    -1,     5,    -1,
+      19,    35,    20,    -1
 };
 
 /* YYRLINE[YYN] -- source line where rule number YYN was defined.  */
 static const yytype_uint16 yyrline[] =
 {
-       0,   257,   257,   258,   266,   267,   268,   272,   275,   281,
-     287,   288,   289,   293,   294,   295,   296,   297,   298,   299
+       0,   332,   332,   333,   337,   338,   339,   340,   341,   350,
+     352,   357,   361,   362,   363,   364,   365,   366,   367,   368,
+     372,   373,   374,   375,   376,   377,   378,   379
 };
 #endif
 
@@ -686,9 +772,10 @@ static const yytype_uint16 yyrline[] =
    First, the terminals, then, starting at YYNTOKENS, nonterminals.  */
 static const char *const yytname[] =
 {
-  "$end", "error", "$undefined", "FLOAT", "IDENT", "PRINT", "IF", "ELSE",
-  "ASSIGN", "PLUS", "MINUS", "MUL", "DIV", "SEMI", "LBRACE", "RBRACE",
-  "LPAREN", "RPAREN", "GT", "LT", "EQ", "$accept", "program", "statement",
+  "$end", "error", "$undefined", "FLOAT", "IDENT", "STRING", "PRINT",
+  "IF", "ELSE", "WHILE", "FOR", "ASSIGN", "PLUS", "MINUS", "MUL", "DIV",
+  "SEMI", "LBRACE", "RBRACE", "LPAREN", "RPAREN", "GT", "LT", "EQ", "GE",
+  "LE", "NE", "AND", "OR", "$accept", "program", "statement",
   "if_statement", "block", "condition", "expr", 0
 };
 #endif
@@ -700,22 +787,24 @@ static const yytype_uint16 yytoknum[] =
 {
        0,   256,   257,   258,   259,   260,   261,   262,   263,   264,
      265,   266,   267,   268,   269,   270,   271,   272,   273,   274,
-     275
+     275,   276,   277,   278,   279,   280,   281,   282,   283
 };
 # endif
 
 /* YYR1[YYN] -- Symbol number of symbol that rule YYN derives.  */
 static const yytype_uint8 yyr1[] =
 {
-       0,    21,    22,    22,    23,    23,    23,    24,    24,    25,
-      26,    26,    26,    27,    27,    27,    27,    27,    27,    27
+       0,    29,    30,    30,    31,    31,    31,    31,    31,    32,
+      32,    33,    34,    34,    34,    34,    34,    34,    34,    34,
+      35,    35,    35,    35,    35,    35,    35,    35
 };
 
 /* YYR2[YYN] -- Number of symbols composing right hand side of rule YYN.  */
 static const yytype_uint8 yyr2[] =
 {
-       0,     2,     0,     2,     4,     3,     1,     5,     7,     3,
-       3,     3,     3,     3,     3,     3,     3,     1,     1,     3
+       0,     2,     0,     2,     4,     3,     1,     5,    13,     5,
+       7,     3,     3,     3,     3,     3,     3,     3,     3,     3,
+       3,     3,     3,     3,     1,     1,     1,     3
 };
 
 /* YYDEFACT[STATE-NAME] -- Default rule to reduce with in state
@@ -723,35 +812,41 @@ static const yytype_uint8 yyr2[] =
    means the default is an error.  */
 static const yytype_uint8 yydefact[] =
 {
-       2,     0,     1,     0,     0,     0,     3,     6,     0,    17,
-      18,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-       5,     0,     0,     4,    19,    13,    14,    15,    16,     0,
-       0,     0,     0,     2,     7,    10,    11,    12,     0,     0,
-       9,     8
+       2,     0,     1,     0,     0,     0,     0,     0,     3,     6,
+       0,    24,    25,    26,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     5,     0,     0,     0,     0,
+       4,    27,    20,    21,    22,    23,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     2,     9,    12,
+      13,    14,    15,    19,    16,    17,    18,     7,     0,     0,
+       0,     0,    11,    10,     0,     0,     0,     0,     0,     0,
+       8
 };
 
 /* YYDEFGOTO[NTERM-NUM].  */
 static const yytype_int8 yydefgoto[] =
 {
-      -1,     1,     6,     7,    34,    21,    12
+      -1,     1,     8,     9,    48,    26,    27
 };
 
 /* YYPACT[STATE-NUM] -- Index in YYTABLE of the portion describing
    STATE-NUM.  */
-#define YYPACT_NINF -13
+#define YYPACT_NINF -38
 static const yytype_int8 yypact[] =
 {
-     -13,    37,   -13,    -4,    -2,    -3,   -13,   -13,    -2,   -13,
-     -13,    -2,    35,    -2,    40,    23,    -2,    -2,    -2,    -2,
-     -13,     3,     7,   -13,   -13,    -5,    -5,   -13,   -13,     1,
-      -2,    -2,    -2,   -13,     5,    45,    45,    45,    24,     1,
-     -13,   -13
+     -38,    24,   -38,    -9,     8,   -12,    -3,     6,   -38,   -38,
+       8,   -38,   -38,   -38,     8,    75,     8,     8,     5,    80,
+      57,     8,     8,     8,     8,   -38,    23,    34,    46,    15,
+     -38,   -38,   -10,   -10,   -38,   -38,    12,     8,     8,     8,
+       8,     8,     8,     8,     8,    12,     8,   -38,    33,   -38,
+      17,    70,    70,    70,    70,    70,    70,   -38,    85,    58,
+      12,     8,   -38,   -38,   -13,    48,    42,     8,    66,    12,
+     -38
 };
 
 /* YYPGOTO[NTERM-NUM].  */
 static const yytype_int8 yypgoto[] =
 {
-     -13,   -12,   -13,   -13,    -1,   -13,    -8
+     -38,     7,   -38,   -38,   -37,   -16,    -4
 };
 
 /* YYTABLE[YYPACT[STATE-NUM]].  What to do in state STATE-NUM.  If
@@ -761,33 +856,46 @@ static const yytype_int8 yypgoto[] =
 #define YYTABLE_NINF -1
 static const yytype_uint8 yytable[] =
 {
-      14,     9,    10,    15,     8,    22,    18,    19,    25,    26,
-      27,    28,    39,    13,    11,    33,    16,    17,    18,    19,
-      29,    38,    35,    36,    37,    30,    31,    32,     3,     4,
-       5,     0,    16,    17,    18,    19,     0,     2,    41,    40,
-      24,     3,     4,     5,    16,    17,    18,    19,    20,    16,
-      17,    18,    19,    23,    16,    17,    18,    19
+      15,    28,    10,    65,    23,    24,    19,    16,    57,    29,
+      20,    11,    12,    13,    37,    38,    17,    32,    33,    34,
+      35,    49,    50,    63,     2,    18,    46,    14,     3,    47,
+       4,     5,    70,     6,     7,    51,    52,    53,    54,    55,
+      56,    60,    58,    36,    37,    64,    21,    22,    23,    24,
+      37,    38,    66,    67,    59,    39,    40,    41,    42,    43,
+      44,     0,     3,    68,     4,     5,    45,     6,     7,    21,
+      22,    23,    24,    37,    38,     0,    62,    31,    21,    22,
+      23,    24,    21,    22,    23,    24,    69,    21,    22,    23,
+      24,    25,    21,    22,    23,    24,    30,    21,    22,    23,
+      24,    61
 };
 
 static const yytype_int8 yycheck[] =
 {
-       8,     3,     4,    11,     8,    13,    11,    12,    16,    17,
-      18,    19,     7,    16,    16,    14,     9,    10,    11,    12,
-      17,    33,    30,    31,    32,    18,    19,    20,     4,     5,
-       6,    -1,     9,    10,    11,    12,    -1,     0,    39,    15,
-      17,     4,     5,     6,     9,    10,    11,    12,    13,     9,
-      10,    11,    12,    13,     9,    10,    11,    12
+       4,    17,    11,    16,    14,    15,    10,    19,    45,     4,
+      14,     3,     4,     5,    27,    28,    19,    21,    22,    23,
+      24,    37,    38,    60,     0,    19,    11,    19,     4,    17,
+       6,     7,    69,     9,    10,    39,    40,    41,    42,    43,
+      44,     8,    46,    20,    27,    61,    12,    13,    14,    15,
+      27,    28,     4,    11,    47,    21,    22,    23,    24,    25,
+      26,    -1,     4,    67,     6,     7,    20,     9,    10,    12,
+      13,    14,    15,    27,    28,    -1,    18,    20,    12,    13,
+      14,    15,    12,    13,    14,    15,    20,    12,    13,    14,
+      15,    16,    12,    13,    14,    15,    16,    12,    13,    14,
+      15,    16
 };
 
 /* YYSTOS[STATE-NUM] -- The (internal number of the) accessing
    symbol of state STATE-NUM.  */
 static const yytype_uint8 yystos[] =
 {
-       0,    22,     0,     4,     5,     6,    23,    24,     8,     3,
-       4,    16,    27,    16,    27,    27,     9,    10,    11,    12,
-      13,    26,    27,    13,    17,    27,    27,    27,    27,    17,
-      18,    19,    20,    14,    25,    27,    27,    27,    22,     7,
-      15,    25
+       0,    30,     0,     4,     6,     7,     9,    10,    31,    32,
+      11,     3,     4,     5,    19,    35,    19,    19,    19,    35,
+      35,    12,    13,    14,    15,    16,    34,    35,    34,     4,
+      16,    20,    35,    35,    35,    35,    20,    27,    28,    21,
+      22,    23,    24,    25,    26,    20,    11,    17,    33,    34,
+      34,    35,    35,    35,    35,    35,    35,    33,    35,    30,
+       8,    16,    18,    33,    34,    16,     4,    11,    35,    20,
+      33
 };
 
 #define yyerrok		(yyerrstatus = 0)
@@ -1601,144 +1709,193 @@ yyreduce:
         case 2:
 
 /* Line 1455 of yacc.c  */
-#line 257 "mini.y"
+#line 332 "mini.y"
     { (yyval.stmt_list) = make_stmt_list(); root = (yyval.stmt_list); ;}
     break;
 
   case 3:
 
 /* Line 1455 of yacc.c  */
-#line 258 "mini.y"
-    {
-        if (!(yyvsp[(1) - (2)].stmt_list)) (yyval.stmt_list) = make_stmt_list();
-        else (yyval.stmt_list) = (yyvsp[(1) - (2)].stmt_list);
-        stmt_list_append((yyval.stmt_list), (yyvsp[(2) - (2)].stmt));
-        root = (yyval.stmt_list);
-    ;}
+#line 333 "mini.y"
+    { stmt_list_append((yyvsp[(1) - (2)].stmt_list), (yyvsp[(2) - (2)].stmt)); (yyval.stmt_list) = (yyvsp[(1) - (2)].stmt_list); root = (yyval.stmt_list); ;}
     break;
 
   case 4:
 
 /* Line 1455 of yacc.c  */
-#line 266 "mini.y"
+#line 337 "mini.y"
     { (yyval.stmt) = make_assign((yyvsp[(1) - (4)].str), (yyvsp[(3) - (4)].expr)); ;}
     break;
 
   case 5:
 
 /* Line 1455 of yacc.c  */
-#line 267 "mini.y"
+#line 338 "mini.y"
     { (yyval.stmt) = make_print((yyvsp[(2) - (3)].expr)); ;}
     break;
 
   case 6:
 
 /* Line 1455 of yacc.c  */
-#line 268 "mini.y"
+#line 339 "mini.y"
     { (yyval.stmt) = (yyvsp[(1) - (1)].stmt); ;}
     break;
 
   case 7:
 
 /* Line 1455 of yacc.c  */
-#line 272 "mini.y"
-    {
-          (yyval.stmt) = make_if((yyvsp[(3) - (5)].expr), (yyvsp[(5) - (5)].stmt_list), NULL);
-      ;}
+#line 340 "mini.y"
+    { (yyval.stmt) = make_while((yyvsp[(3) - (5)].expr), (yyvsp[(5) - (5)].stmt_list)); ;}
     break;
 
   case 8:
 
 /* Line 1455 of yacc.c  */
-#line 275 "mini.y"
+#line 342 "mini.y"
     {
-          (yyval.stmt) = make_if((yyvsp[(3) - (7)].expr), (yyvsp[(5) - (7)].stmt_list), (yyvsp[(7) - (7)].stmt_list));
-      ;}
+        stmt_t *init = make_assign((yyvsp[(3) - (13)].str), (yyvsp[(5) - (13)].expr));
+        stmt_t *incr = make_assign((yyvsp[(9) - (13)].str), (yyvsp[(11) - (13)].expr));
+        (yyval.stmt) = make_for(init, (yyvsp[(7) - (13)].expr), incr, (yyvsp[(13) - (13)].stmt_list));
+    ;}
     break;
 
   case 9:
 
 /* Line 1455 of yacc.c  */
-#line 281 "mini.y"
-    {
-          (yyval.stmt_list) = (yyvsp[(2) - (3)].stmt_list) ? (yyvsp[(2) - (3)].stmt_list) : make_stmt_list();
-      ;}
+#line 351 "mini.y"
+    { (yyval.stmt) = make_if((yyvsp[(3) - (5)].expr), (yyvsp[(5) - (5)].stmt_list), NULL); ;}
     break;
 
   case 10:
 
 /* Line 1455 of yacc.c  */
-#line 287 "mini.y"
-    { (yyval.expr) = make_binop(OP_GT, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+#line 353 "mini.y"
+    { (yyval.stmt) = make_if((yyvsp[(3) - (7)].expr), (yyvsp[(5) - (7)].stmt_list), (yyvsp[(7) - (7)].stmt_list)); ;}
     break;
 
   case 11:
 
 /* Line 1455 of yacc.c  */
-#line 288 "mini.y"
-    { (yyval.expr) = make_binop(OP_LT, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+#line 357 "mini.y"
+    { (yyval.stmt_list) = (yyvsp[(2) - (3)].stmt_list) ? (yyvsp[(2) - (3)].stmt_list) : make_stmt_list(); ;}
     break;
 
   case 12:
 
 /* Line 1455 of yacc.c  */
-#line 289 "mini.y"
-    { (yyval.expr) = make_binop(OP_EQ, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+#line 361 "mini.y"
+    { (yyval.expr) = make_binop(OP_AND, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
     break;
 
   case 13:
 
 /* Line 1455 of yacc.c  */
-#line 293 "mini.y"
-    { (yyval.expr) = make_binop(OP_PLUS, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+#line 362 "mini.y"
+    { (yyval.expr) = make_binop(OP_OR, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
     break;
 
   case 14:
 
 /* Line 1455 of yacc.c  */
-#line 294 "mini.y"
-    { (yyval.expr) = make_binop(OP_MINUS, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+#line 363 "mini.y"
+    { (yyval.expr) = make_binop(OP_GT, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
     break;
 
   case 15:
 
 /* Line 1455 of yacc.c  */
-#line 295 "mini.y"
-    { (yyval.expr) = make_binop(OP_MUL, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+#line 364 "mini.y"
+    { (yyval.expr) = make_binop(OP_LT, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
     break;
 
   case 16:
 
 /* Line 1455 of yacc.c  */
-#line 296 "mini.y"
-    { (yyval.expr) = make_binop(OP_DIV, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+#line 365 "mini.y"
+    { (yyval.expr) = make_binop(OP_GE, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
     break;
 
   case 17:
 
 /* Line 1455 of yacc.c  */
-#line 297 "mini.y"
-    { (yyval.expr) = make_const((yyvsp[(1) - (1)].fval)); ;}
+#line 366 "mini.y"
+    { (yyval.expr) = make_binop(OP_LE, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
     break;
 
   case 18:
 
 /* Line 1455 of yacc.c  */
-#line 298 "mini.y"
-    { (yyval.expr) = make_var((yyvsp[(1) - (1)].str)); ;}
+#line 367 "mini.y"
+    { (yyval.expr) = make_binop(OP_NE, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
     break;
 
   case 19:
 
 /* Line 1455 of yacc.c  */
-#line 299 "mini.y"
+#line 368 "mini.y"
+    { (yyval.expr) = make_binop(OP_EQ, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+    break;
+
+  case 20:
+
+/* Line 1455 of yacc.c  */
+#line 372 "mini.y"
+    { (yyval.expr) = make_binop(OP_PLUS, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+    break;
+
+  case 21:
+
+/* Line 1455 of yacc.c  */
+#line 373 "mini.y"
+    { (yyval.expr) = make_binop(OP_MINUS, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+    break;
+
+  case 22:
+
+/* Line 1455 of yacc.c  */
+#line 374 "mini.y"
+    { (yyval.expr) = make_binop(OP_MUL, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+    break;
+
+  case 23:
+
+/* Line 1455 of yacc.c  */
+#line 375 "mini.y"
+    { (yyval.expr) = make_binop(OP_DIV, (yyvsp[(1) - (3)].expr), (yyvsp[(3) - (3)].expr)); ;}
+    break;
+
+  case 24:
+
+/* Line 1455 of yacc.c  */
+#line 376 "mini.y"
+    { (yyval.expr) = make_const((yyvsp[(1) - (1)].fval)); ;}
+    break;
+
+  case 25:
+
+/* Line 1455 of yacc.c  */
+#line 377 "mini.y"
+    { (yyval.expr) = make_var((yyvsp[(1) - (1)].str)); ;}
+    break;
+
+  case 26:
+
+/* Line 1455 of yacc.c  */
+#line 378 "mini.y"
+    { (yyval.expr) = make_string((yyvsp[(1) - (1)].str)); ;}
+    break;
+
+  case 27:
+
+/* Line 1455 of yacc.c  */
+#line 379 "mini.y"
     { (yyval.expr) = (yyvsp[(2) - (3)].expr); ;}
     break;
 
 
 
 /* Line 1455 of yacc.c  */
-#line 1742 "mini.tab.c"
+#line 1899 "mini.tab.c"
       default: break;
     }
   YY_SYMBOL_PRINT ("-> $$ =", yyr1[yyn], &yyval, &yyloc);
@@ -1950,13 +2107,14 @@ yyreturn:
 
 
 /* Line 1675 of yacc.c  */
-#line 302 "mini.y"
+#line 382 "mini.y"
 
 
 void yyerror(const char *s) {
     fprintf(stderr, "Parse error: %s\n", s);
 }
 
+/* MAIN — UNCHANGED */
 int main() {
 
     printf("=============================================================\n");
@@ -1969,9 +2127,6 @@ int main() {
     printf("-------------------------------------------------------------\n");
     printf("%-25s %-15s\n", "Shouvik Dhali", "0242220005101159");
     printf("%-25s %-15s\n", "Seikh Shariar Nehal", "0242220005101260");
-    printf("%-25s %-15s\n", "Mst. Afiya Haque Nilasa", "0242310005101630");
-    printf("%-25s %-15s\n", "Mst. Rukaia Zahan", "0242310005101390");
-    printf("%-25s %-15s\n", "Babor Ali", "0242310005101954");
 
     printf("\nSection: 63_G\n");
     printf("Daffodil International University\n\n");
@@ -1984,7 +2139,7 @@ int main() {
     printf("Daffodil International University\n");
     printf("-------------------------------------------------------------\n");
 
-    printf("Submission Date: 14-08-2025\n");
+    printf("Submission Date: 11-12-2025\n");
     printf("=============================================================\n\n");
 
     printf("Write your code below\n");
@@ -1993,7 +2148,6 @@ int main() {
 
     if (yyparse() == 0) {
         execute_stmt_list(root);
-        free_stmt_list(root);
     }
     return 0;
 }

@@ -96,15 +96,15 @@ double get_var(const char *name) {
     return 0.0;
 }
 
+/* FIX 1 — return NULL when variable is not a string */
 char *get_var_str(const char *name) {
     var_t *v = var_list;
     while (v) {
         if (strcmp(v->name, name) == 0)
-            return v->str_value ? v->str_value : "";
+            return v->str_value;   // may be NULL
         v = v->next;
     }
-    fprintf(stderr, "Error: string variable '%s' not defined.\n", name);
-    return "";
+    return NULL;
 }
 
 /* ========================= EXPR ======================== */
@@ -127,8 +127,8 @@ expr_t *make_string(char *s) {
     expr_t *e = malloc(sizeof(expr_t));
     e->type = EXPR_STRING;
 
-    s[strlen(s)-1] = '\0';    // remove ending "
-    e->str_value = strdup(s+1); // remove starting "
+    s[strlen(s)-1] = '\0'; 
+    e->str_value = strdup(s+1);
 
     return e;
 }
@@ -246,13 +246,21 @@ void execute_stmt(stmt_t *s) {
             set_var(s->assign.var_name, eval_expr(s->assign.expr));
         break;
 
+    /* FIX 2 — correctly print string or numeric variable */
     case STMT_PRINT:
-        if (s->print.expr->type == EXPR_STRING)
+        if (s->print.expr->type == EXPR_STRING) {
             printf("%s\n", s->print.expr->str_value);
-        else if (s->print.expr->type == EXPR_VAR && get_var_str(s->print.expr->var_name))
-            printf("%s\n", get_var_str(s->print.expr->var_name));
-        else
+        }
+        else if (s->print.expr->type == EXPR_VAR) {
+            char *sv = get_var_str(s->print.expr->var_name);
+            if (sv != NULL)
+                printf("%s\n", sv);
+            else
+                printf("%g\n", get_var(s->print.expr->var_name));
+        }
+        else {
             printf("%g\n", eval_expr(s->print.expr));
+        }
         break;
 
     case STMT_IF:
@@ -330,8 +338,12 @@ statement:
     | PRINT expr SEMI             { $$ = make_print($2); }
     | if_statement                { $$ = $1; }
     | WHILE LPAREN condition RPAREN block { $$ = make_while($3, $5); }
-    | FOR LPAREN statement condition SEMI statement RPAREN block
-                                   { $$ = make_for($3, $4, $6, $8); }
+    | FOR LPAREN IDENT ASSIGN expr SEMI condition SEMI IDENT ASSIGN expr RPAREN block
+    {
+        stmt_t *init = make_assign($3, $5);
+        stmt_t *incr = make_assign($9, $11);
+        $$ = make_for(init, $7, incr, $13);
+    }
     ;
 
 if_statement:
@@ -386,9 +398,6 @@ int main() {
     printf("-------------------------------------------------------------\n");
     printf("%-25s %-15s\n", "Shouvik Dhali", "0242220005101159");
     printf("%-25s %-15s\n", "Seikh Shariar Nehal", "0242220005101260");
-    printf("%-25s %-15s\n", "Mst. Afiya Haque Nilasa", "0242310005101630");
-    printf("%-25s %-15s\n", "Mst. Rukaia Zahan", "0242310005101390");
-    printf("%-25s %-15s\n", "Babor Ali", "0242310005101954");
 
     printf("\nSection: 63_G\n");
     printf("Daffodil International University\n\n");
@@ -401,7 +410,7 @@ int main() {
     printf("Daffodil International University\n");
     printf("-------------------------------------------------------------\n");
 
-    printf("Submission Date: 14-08-2025\n");
+    printf("Submission Date: 11-12-2025\n");
     printf("=============================================================\n\n");
 
     printf("Write your code below\n");
