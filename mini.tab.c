@@ -2127,13 +2127,14 @@ int main() {
     printf("-------------------------------------------------------------\n");
     printf("%-25s %-15s\n", "Shouvik Dhali", "0242220005101159");
     printf("%-25s %-15s\n", "Seikh Shariar Nehal", "0242220005101260");
+    printf("%-25s %-15s\n", "Akib Ahmed", "0242220005101902");
 
     printf("\nSection: 63_G\n");
     printf("Daffodil International University\n\n");
 
     printf("Submitted To:\n");
     printf("-------------------------------------------------------------\n");
-    printf("Zannatul Mawa Koli\n");
+    printf("Rowzatul Zannat\n");
     printf("Lecturer, Department of CSE\n");
     printf("Faculty of Science & Information Technology\n");
     printf("Daffodil International University\n");
